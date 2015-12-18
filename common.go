@@ -5,17 +5,19 @@ import (
 	"net"
 	"os"
 	"path"
+	"time"
 
 	"github.com/Sirupsen/logrus"
 )
 import "github.com/garyburd/redigo/redis"
 
 type RedisServer struct {
-	address string
-	options []redis.DialOption
-	prefix  string
-	master  string
-	conn    redis.Conn
+	address   string
+	options   []redis.DialOption
+	prefix    string
+	master    string
+	conn      redis.Conn
+	advertise *Advertise
 }
 
 var (
@@ -27,7 +29,7 @@ func init() {
 	logger = logrus.StandardLogger()
 }
 
-func (redisServer *RedisServer) init(discovery *Discovery) error {
+func (redisServer *RedisServer) init(discovery *Discovery, advertise *Advertise) error {
 	host, port, err := net.SplitHostPort(discovery.url.Host)
 	if err != nil {
 		host = discovery.url.Host
@@ -52,29 +54,36 @@ func (redisServer *RedisServer) init(discovery *Discovery) error {
 	if master == "" {
 		master = "master"
 	}
-	redisServer.prefix = prefix
+	redisServer.prefix = prefix[1:]
 	redisServer.master = master
 	err = redisServer.get()
 	if err != nil {
 		return err
 	}
+	redisServer.advertise = advertise
 	return nil
 }
 
-func (redisServer *RedisServer) register(advertise *Advertise) {
-	replay, err := redisServer.conn.Do("APPEND", "key", "value")
-	if err != nil {
-		panic(err)
-	}
-	replay, err = redisServer.conn.Do("PUBLISH", "dragonfly/master", 123)
-	if err != nil {
-		panic(err)
-	}
-	logger.Debugln(replay)
-	//	redisServer.conn.Send("PUBLISH", redisServer.prefix+"/"+redisServer.master, advertise.origin)
+func (redisServer *RedisServer) keep(second int) {
+	logger.Infof("Keep every %s second", second)
+	replay, err := redisServer.register()
+	logger.Debugf("Register after %s second, replay->%s, err->%s", second, replay, err)
+	go func() {
+		for {
+			select {
+			case <-time.After(time.Second * time.Duration(second)):
+				replay, err := redisServer.register()
+				logger.Debugf("Register after %s second, replay->%s, err->%s", second, replay, err)
+			}
+		}
+	}()
 }
 
-func (redisServer *RedisServer) watch(advertise *Advertise) {
+func (redisServer *RedisServer) register() (interface{}, error) {
+	return redisServer.conn.Do("PUBLISH", redisServer.prefix+redisServer.master+"/"+DISCOVERY_REGISTER_NODE, redisServer.advertise.origin)
+}
+
+func (redisServer *RedisServer) watch() {
 
 }
 

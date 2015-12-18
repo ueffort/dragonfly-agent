@@ -28,10 +28,11 @@
 ## 角色
 > 通过与Server通信获取本机对应的角色列表
 > Server通过匹对advertise进行查找
-## redis中订阅发布的规范：
-1. 每个agent启动后，订阅多个channel，订阅格式：项目名/（主机名，角色名|多角色名）
-2. Data根据api的定义发送任务信息到对应的channel，并订阅一个channel
-3. agent执行完毕后，将结果发送到对应的channel，channel信息会在任务信息中传递
+## redis中订阅发布的规范： 
+1. 每个agent启动后，订阅多个channel，订阅格式：$prefix/$advertise
+2. 定时将自己注册到channel,避免master意外退出 , 格式: $prefix/$master/register  | prefix/master  =  path/file  = scheme.path
+3. Data根据api的定义发送任务信息到对应的channel，并订阅一个channel
+4. agent执行完毕后，将结果发送到对应的channel，channel信息会在任务信息中传递
 
 # 开发
 1. 将该目录加入GOPATH

@@ -6,9 +6,10 @@ import (
 )
 
 type DiscoveryServer interface {
-	init(discovery *Discovery) error
-	register(advertise *Advertise)
-	watch(advertise *Advertise)
+	init(discovery *Discovery, advertise *Advertise) error
+	keep(second int)
+	register() (interface{}, error)
+	watch()
 }
 
 type Discovery struct {
@@ -22,6 +23,9 @@ type Advertise struct {
 	origin string
 }
 
+const DISCOVERY_REGISTER_NODE = "register"
+const DISCOVERY_KEEPALIVE = 60
+
 var (
 	server DiscoveryServer
 )
@@ -31,22 +35,21 @@ func StartServer(discovery *Discovery, advertise *Advertise) error {
 	logger.Info("Start Server")
 	logger.Debugf("Discovery info:%s", discovery)
 	logger.Debugf("Advertise info :%s", advertise)
-	server, err := InitServer(discovery)
+	server, err := InitServer(discovery, advertise)
 	if err != nil {
 		return err
 	}
-	server.register(advertise)
-
+	server.keep(DISCOVERY_KEEPALIVE)
 	return nil
 }
 
-func InitServer(discovery *Discovery) (DiscoveryServer, error) {
+func InitServer(discovery *Discovery, advertise *Advertise) (DiscoveryServer, error) {
 	logger.Infof("DiscoveryServer is %s, init start", discovery.url.Scheme)
 	switch discovery.url.Scheme {
 	case "redis":
 		server = new(RedisServer)
 	}
-	err := server.init(discovery)
+	err := server.init(discovery, advertise)
 	return server, err
 }
 

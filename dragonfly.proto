@@ -14,14 +14,14 @@ enum TaskStats {
 	EXCEPTION=4; // 异常: agent错误导致
 }
 
-message request {
+message Task {
 	required string id=1;
 	required string channel=2;
 	required string command=3;
 	required TaskType type=4;
 }
 
-message response {
+message Result {
 	required string id=1;
 	required TaskStats stats=2;
 }
