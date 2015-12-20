@@ -8,16 +8,14 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	redisgo "github.com/garyburd/redigo/redis"
 )
-import "github.com/garyburd/redigo/redis"
 
-type RedisServer struct {
-	address   string
-	options   []redis.DialOption
-	prefix    string
-	master    string
-	conn      redis.Conn
-	advertise *Advertise
+type Redis struct {
+	address string
+	options []redisgo.DialOption
+	prefix  string
+	master  string
 }
 
 var (
@@ -29,7 +27,7 @@ func init() {
 	logger = logrus.StandardLogger()
 }
 
-func (redisServer *RedisServer) init(discovery *Discovery, advertise *Advertise) error {
+func (redis *Redis) init(discovery *Discovery) error {
 	host, port, err := net.SplitHostPort(discovery.url.Host)
 	if err != nil {
 		host = discovery.url.Host
@@ -42,59 +40,64 @@ func (redisServer *RedisServer) init(discovery *Discovery, advertise *Advertise)
 	}
 	logger.Debugf("RedisServer info: host->%s, port->%s", host, port)
 	address := net.JoinHostPort(host, port)
-	redisServer.address = address
+	redis.address = address
 	password, isSet := discovery.url.User.Password()
 	if isSet {
-		redisServer.options = append(redisServer.options, redis.DialPassword(password))
+		redis.options = append(redis.options, redisgo.DialPassword(password))
 	}
 	prefix, master := path.Split(discovery.url.Path)
 	if prefix == "" {
-		return fmt.Errorf("RedisServer path is empty: %s", discovery.url.Path)
+		return fmt.Errorf("Redis path is empty: %s", discovery.url.Path)
 	}
 	if master == "" {
 		master = "master"
 	}
-	redisServer.prefix = prefix[1:]
-	redisServer.master = master
-	err = redisServer.get()
-	if err != nil {
-		return err
-	}
-	redisServer.advertise = advertise
+	redis.prefix = prefix[1:]
+	redis.master = master
 	return nil
 }
 
-func (redisServer *RedisServer) keep(second int) {
-	logger.Infof("Keep every %s second", second)
-	replay, err := redisServer.register()
-	logger.Debugf("Register after %s second, replay->%s, err->%s", second, replay, err)
-	go func() {
-		for {
-			select {
-			case <-time.After(time.Second * time.Duration(second)):
-				replay, err := redisServer.register()
-				logger.Debugf("Register after %s second, replay->%s, err->%s", second, replay, err)
+func (redis *Redis) notice(target string, message interface{}) (interface{}, error) {
+	conn, err := redis.connect()
+	defer conn.Close()
+	if err != nil {
+		return nil, err
+	}
+	return conn.Do("PUBLISH", redis.prefix+redis.master+"/"+target, message)
+}
+
+func (redis *Redis) watch(advertise string, handle, watching chan<- bool, unwartch <-chan bool) {
+	conn, err = redis.connect()
+	defer conn.Close()
+	if err != nil {
+		return nil, err
+	}
+	psc := redisgo.PubSubConn{Conn: conn}
+	psc.Subscribe(redis.prefix + advertise)
+	watching <- bool
+	for {
+		switch {
+		case <-unwartch:
+			psc.Unsubscribe()
+			psc.PUnsubscribe()
+			return
+		default:
+			v := psc.Receive()
+			switch v.(type) {
+			case redisgo.Message:
+				fallthrough
+			case redisgo.PMessage:
+				handle(v.Data)
+			case error:
+				return v
 			}
 		}
-	}()
-}
-
-func (redisServer *RedisServer) register() (interface{}, error) {
-	return redisServer.conn.Do("PUBLISH", redisServer.prefix+redisServer.master+"/"+DISCOVERY_REGISTER_NODE, redisServer.advertise.origin)
-}
-
-func (redisServer *RedisServer) watch() {
-
-}
-
-func (redisServer *RedisServer) get() error {
-	if redisServer.address == "" {
-		return fmt.Errorf("Redis not set, setRedis first:%s", redisServer)
 	}
-	conn, err := redis.Dial("tcp", redisServer.address, redisServer.options...)
-	if err != nil {
-		return err
+}
+
+func (redis *Redis) connect() (redisgo.Conn, error) {
+	if redis.address == "" {
+		return fmt.Errorf("Redis not set, setRedis first:%s", redis)
 	}
-	redisServer.conn = conn
-	return nil
+	return redisgo.Dial("tcp", redis.address, redis.options...)
 }

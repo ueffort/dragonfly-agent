@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -76,26 +75,22 @@ func Run() error {
 
 // 分析discovery
 func parseDiscovery(discoveryStr *string) (*Discovery, error) {
-	u, err := url.Parse(*discoveryStr)
+	discovery := new(Discovery)
+	err := discovery.parse(*discoveryStr)
 	if err != nil {
 		return nil, err
 	}
-	discovery := Discovery{url: *u, rawurl: *discoveryStr}
-	err = discovery.parse()
-	if err != nil {
-		return nil, err
-	}
-	return &discovery, nil
+	return discovery, nil
 }
 
 // 分析advertise
 func parseAdvertise(advertiseStr *string) (*Advertise, error) {
-	advertise := Advertise{origin: *advertiseStr}
-	err := advertise.parse()
+	advertise := new(Advertise)
+	err := advertise.parse(*advertiseStr)
 	if err != nil {
 		return nil, err
 	}
-	return &advertise, nil
+	return advertise, nil
 }
 
 func postParseEnv() error {

@@ -5,18 +5,22 @@ import (
 	"os/exec"
 )
 
-type TaskConfig struct {
+type taskConfig struct {
 	command  string
 	argArray []string
 }
 
-type TaskResult struct {
+type taskResult struct {
 	state  int
 	stdout io.Reader
 	stderr io.Reader
 }
 
-func TaskRun(taskConfig *TaskConfig) (*TaskResult, error) {
+func taskHandler(message interface) {
+	
+}
+
+func taskRun(taskConfig *TaskConfig) (*TaskResult, error) {
 	cmd := exec.Command(taskConfig.command, taskConfig.argArray...)
 	taskResult := new(TaskResult)
 	stdout, err := cmd.StdoutPipe()
