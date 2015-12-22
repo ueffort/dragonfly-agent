@@ -16,6 +16,10 @@
 			"Rev": "6ece6e0a09f28cc399b21550cbf37ab39ba63cce"
 		},
 		{
+			"ImportPath": "github.com/golang/protobuf/proto",
+			"Rev": "68415e7123da32b07eab49c96d2c4d6158360e9b"
+		},
+		{
 			"ImportPath": "github.com/ueffort/goutils/mflag",
 			"Rev": "09c7bce046ab688f954fb7e0e5ab50f431f74ade"
 		},

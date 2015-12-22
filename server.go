@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type messageHandler func(message interface{}) error
+type messageHandler func(message []byte) error
 type cancelWatch func()
 
 type DiscoveryServer interface {

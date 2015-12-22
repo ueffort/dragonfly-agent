@@ -3,6 +3,8 @@ package main
 import (
 	"io"
 	"os/exec"
+
+	"github.com/golang/protobuf/proto"
 )
 
 type TaskConfig struct {
@@ -16,8 +18,13 @@ type TaskResult struct {
 	stderr io.Reader
 }
 
-func taskHandler(message interface{}) error {
+func taskHandler(message []byte) error {
 	logger.Debugf("Task message :%s", message)
+	newTask := new(Task)
+	err := proto.Unmarshal(message, newTask)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
