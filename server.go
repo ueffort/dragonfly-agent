@@ -3,14 +3,21 @@ package main
 import (
 	"fmt"
 	"net/url"
+	"time"
 )
 
 type messageHandler func(message interface{}) error
+type cancelWatch func()
 
 type DiscoveryServer interface {
 	init(discovery *Discovery) error
-	watch(advertise string, handler messageHandler, watching chan<- bool, unwartch <-chan bool)
+	// 内部异步监听,并将取消监听操作回调
+	watch(advertise string, handler messageHandler, watching chan<- bool, watchoff chan<- bool) (cancelWatch, error)
 	notice(target string, message interface{}) (interface{}, error)
+}
+
+type ServerManage struct {
+	server DiscoveryServer
 }
 
 type Discovery struct {
@@ -36,10 +43,14 @@ const DISCOVERY_KEEPALIVE_INTERVAL = 60
 const DISCOVERY_BREAK_WAITTIME = 60
 
 var (
-	server DiscoveryServer
-	quit   chan bool
-	clear  chan bool
+	sm    *ServerManage
+	quit  chan bool
+	clear chan bool
 )
+
+func init() {
+	sm = new(ServerManage)
+}
 
 // 开启服务
 func StartServer(discovery *Discovery, advertise *Advertise) error {
@@ -50,27 +61,30 @@ func StartServer(discovery *Discovery, advertise *Advertise) error {
 	if err != nil {
 		return err
 	}
+	sm.server = server
 	quit = make(chan bool)
 	clear = make(chan bool)
-	go server.run(advertise)
+	go sm.run(advertise)
 	return nil
 }
 
 //结束服务
 func StopServer() error {
-	if server == nil {
+	if sm == nil {
 		return fmt.Errorf("Server is not init")
 	}
 	logger.Info("Stop Server...")
 	quit <- true
 	<-clear
+	logger.Info("Clear over, can exit")
 	exit <- true
+	return nil
 }
 
 //实现server的keepalive
-func (server DiscoveryServer) keep(second int, advertise *Advertise, watching <-chan bool, stopwatch <-chan bool, unkeep <-chan bool) {
-	register = func() {
-		replay, err := server.notice(DISCOVERY_REGISTER, advertise.origin)
+func (sm *ServerManage) keep(second int, advertise *Advertise, working <-chan bool, workoff <-chan bool, unkeep <-chan bool) {
+	register := func() {
+		replay, err := sm.server.notice(DISCOVERY_REGISTER, advertise.origin)
 		logger.Infof(
 			"Register advertise %s, replay->%s, err->%s, wait %s second",
 			advertise.origin,
@@ -78,10 +92,10 @@ func (server DiscoveryServer) keep(second int, advertise *Advertise, watching <-
 			err,
 			second)
 	}
-	unregister = func() {
-		replay, err := server.notice(DISCOVERY_UNREGISTER, advertise.origin)
+	unregister := func() {
+		replay, err := sm.server.notice(DISCOVERY_UNREGISTER, advertise.origin)
 		logger.Infof(
-			"UNRegister advertise %s, replay->%s, err->%s, wait %s second",
+			"UnRegister advertise %s, replay->%s, err->%s, wait work",
 			advertise.origin,
 			replay,
 			err,
@@ -89,9 +103,9 @@ func (server DiscoveryServer) keep(second int, advertise *Advertise, watching <-
 	}
 	for {
 		select {
-		case <-watching:
+		case <-working:
 			register()
-		case <-stopwatch:
+		case <-workoff:
 			unregister()
 		case <-unkeep:
 			unregister()
@@ -102,44 +116,78 @@ func (server DiscoveryServer) keep(second int, advertise *Advertise, watching <-
 	}
 }
 
-//处理server的运行操作
-func (server DiscoveryServer) run(advertise *Advertise) {
-	unwatch := make(chan bool)
-	watching := make(chan bool)
-	unkeep := make(chan bool)
-	stopwatch := make(chan bool)
-	stopkeey := make(chan bool)
-	watch = func(start chan<- bool, stop <-chan bool, end chan<- bool) {
-		logger.Infof("Watching, wait message", DISCOVERY_KEEPALIVE_INTERVAL)
-		server.watch(advertise.origin, taskHandler, start, stop)
-		end <- true
+func (sm *ServerManage) work(second int, advertise *Advertise, working chan<- bool, workoff chan<- bool, unwork <-chan bool) {
+	except := make(chan bool)
+	var cancel cancelWatch
+	var err error
+	on := func() {
+		cancel, err = sm.server.watch(advertise.origin, taskHandler, working, except)
+		logger.Infof("Watch advertise %s, err->%s", advertise.origin, err)
 	}
-	keep = func(start <-chan bool, wait <-chan bool, stop <-chan bool, end chan<- bool) {
-		logger.Infof("KeepAlive interval %s second", DISCOVERY_KEEPALIVE_INTERVAL)
-		server.keep(DISCOVERY_KEEPALIVE_INTERVAL, advertise, start, wait, stop)
-		end <- true
+	off := func() {
+		if cancel != nil {
+			cancel()
+		}
+		logger.Infof("Cancel Watch advertise %s", advertise.origin)
 	}
-	go watch(watching, unwatch, stopwatch)
-	go keep(watching, stopwatch, unkeep, stopkeep)
+	on()
 	for {
-		switch {
+		select {
+		case <-unwork:
+			off()
+			return
+		case <-except:
+			cancel = nil
+			logger.Infof("Watch is break, wait %s second reconnect", second)
+			workoff <- true
+			select {
+			case <-unwork:
+				off()
+			case <-time.After(time.Second * time.Duration(second)):
+				on()
+			}
+		}
+	}
+}
+
+//处理server的运行操作
+func (sm *ServerManage) run(advertise *Advertise) {
+	working := make(chan bool)
+	workoff := make(chan bool)
+	unwork := make(chan bool)
+	unkeep := make(chan bool)
+	stopwork := make(chan bool)
+	stopkeep := make(chan bool)
+	work := func(on chan<- bool, off chan<- bool, stop <-chan bool, end chan<- bool) {
+		logger.Infof("Server work advertise:%s", advertise)
+		sm.work(DISCOVERY_BREAK_WAITTIME, advertise, on, off, stop)
+		logger.Infoln("Server work stoped")
+		end <- true
+	}
+	keep := func(start <-chan bool, pause <-chan bool, stop <-chan bool, end chan<- bool) {
+		logger.Infof("KeepAlive interval %s second", DISCOVERY_KEEPALIVE_INTERVAL)
+		sm.keep(DISCOVERY_KEEPALIVE_INTERVAL, advertise, start, pause, stop)
+		logger.Infoln("KeepAlive stoped")
+		end <- true
+	}
+	go work(working, workoff, unwork, stopwork)
+	go keep(working, workoff, unkeep, stopkeep)
+	for {
+		select {
 		case <-quit:
-			unwatch <- true
+			unwork <- true
 			unkeep <- true
-			<-stopwatch
+			<-stopwork
 			<-stopkeep
 			clear <- true
 			return
-		case <-stopwatch:
-			logger.Infof("Watch is break, wait %s second reconnect", DISCOVERY_BREAK_WAITTIME)
-			<-time.After(time.Second * time.Duration(second))
-			go watch(watching, unwatch, stopwatch)
 		}
 	}
 }
 
 //根据discovery参数生成server
 func (discovery *Discovery) init() (DiscoveryServer, error) {
+	var server DiscoveryServer
 	logger.Infof("DiscoveryServer is %s, init start", discovery.url.Scheme)
 	switch discovery.url.Scheme {
 	case "redis":
@@ -167,6 +215,6 @@ func (discovery *Discovery) parse(discoveryStr string) error {
 //根据advertise配置格式化参数信息
 func (advertise *Advertise) parse(advertiseStr string) error {
 	advertise.origin = advertiseStr
-	advertise.tag = make([]string)
+	advertise.tag = make([]string, 0)
 	return nil
 }

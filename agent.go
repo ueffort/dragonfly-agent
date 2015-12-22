@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"time"
 
 	flag "github.com/ueffort/goutils/mflag"
 )
@@ -14,7 +13,7 @@ var (
 )
 
 func main() {
-
+	exit = make(chan bool)
 	flHelp := flag.Bool([]string{"h", "-help"}, false, "Print usage")
 	flVersion := flag.Bool([]string{"v", "-version"}, false, "Print version information and quit")
 
@@ -59,6 +58,7 @@ func main() {
 	}
 	go SignalHandle()
 	<-exit
+	logger.Info("Agent exit")
 }
 
 func showVersion() {

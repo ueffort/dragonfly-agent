@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"path"
-	"time"
 
 	"github.com/Sirupsen/logrus"
 	redisgo "github.com/garyburd/redigo/redis"
@@ -66,38 +65,40 @@ func (redis *Redis) notice(target string, message interface{}) (interface{}, err
 	return conn.Do("PUBLISH", redis.prefix+redis.master+"/"+target, message)
 }
 
-func (redis *Redis) watch(advertise string, handle, watching chan<- bool, unwartch <-chan bool) {
-	conn, err = redis.connect()
-	defer conn.Close()
+func (redis *Redis) watch(advertise string, handle messageHandler, watching chan<- bool, watchoff chan<- bool) (cancelWatch, error) {
+	conn, err := redis.connect()
 	if err != nil {
 		return nil, err
 	}
 	psc := redisgo.PubSubConn{Conn: conn}
 	psc.Subscribe(redis.prefix + advertise)
-	watching <- bool
-	for {
-		switch {
-		case <-unwartch:
-			psc.Unsubscribe()
-			psc.PUnsubscribe()
-			return
-		default:
-			v := psc.Receive()
-			switch v.(type) {
+	cancel := func() {
+		psc.Unsubscribe()
+		psc.PUnsubscribe()
+	}
+	runing := func() {
+		defer conn.Close()
+		watching <- true
+		for {
+			switch v := psc.Receive().(type) {
 			case redisgo.Message:
-				fallthrough
+				handle(v.Data)
 			case redisgo.PMessage:
 				handle(v.Data)
 			case error:
-				return v
+				watchoff <- true
+				return
 			}
 		}
+		return
 	}
+	go runing()
+	return cancel, nil
 }
 
 func (redis *Redis) connect() (redisgo.Conn, error) {
 	if redis.address == "" {
-		return fmt.Errorf("Redis not set, setRedis first:%s", redis)
+		return nil, fmt.Errorf("Redis not set, setRedis first:%s", redis)
 	}
 	return redisgo.Dial("tcp", redis.address, redis.options...)
 }

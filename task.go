@@ -5,19 +5,20 @@ import (
 	"os/exec"
 )
 
-type taskConfig struct {
+type TaskConfig struct {
 	command  string
 	argArray []string
 }
 
-type taskResult struct {
+type TaskResult struct {
 	state  int
 	stdout io.Reader
 	stderr io.Reader
 }
 
-func taskHandler(message interface) {
-	
+func taskHandler(message interface{}) error {
+	logger.Debugf("Task message :%s", message)
+	return nil
 }
 
 func taskRun(taskConfig *TaskConfig) (*TaskResult, error) {
