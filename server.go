@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type messageHandler func(message []byte) error
+type messageHandler func(message []byte)
 type cancelWatch func()
 
 type DiscoveryServer interface {
@@ -36,6 +36,9 @@ const DISCOVERY_REGISTER = "register"
 // 注销agent节点
 const DISCOVERY_UNREGISTER = "unregister"
 
+// 异常任务节点
+const DISCOVERY_EXCEPTION = "exception"
+
 // 心跳时间间隔
 const DISCOVERY_KEEPALIVE_INTERVAL = 60
 
@@ -50,6 +53,8 @@ var (
 
 func init() {
 	sm = new(ServerManage)
+	quit = make(chan bool)
+	clear = make(chan bool)
 }
 
 // 开启服务
@@ -62,14 +67,12 @@ func StartServer(discovery *Discovery, advertise *Advertise) error {
 		return err
 	}
 	sm.server = server
-	quit = make(chan bool)
-	clear = make(chan bool)
 	go sm.run(advertise)
 	return nil
 }
 
 //结束服务
-func StopServer() error {
+func StopServer(exit chan<- bool) error {
 	if sm == nil {
 		return fmt.Errorf("Server is not init")
 	}
@@ -121,7 +124,7 @@ func (sm *ServerManage) work(second int, advertise *Advertise, working chan<- bo
 	var cancel cancelWatch
 	var err error
 	on := func() {
-		cancel, err = sm.server.watch(advertise.origin, taskHandler, working, except)
+		cancel, err = sm.server.watch(advertise.origin, sm.task, working, except)
 		logger.Infof("Watch advertise %s, err->%s", advertise.origin, err)
 	}
 	off := func() {
@@ -150,7 +153,19 @@ func (sm *ServerManage) work(second int, advertise *Advertise, working chan<- bo
 	}
 }
 
-//处理server的运行操作
+//处理task
+func (sm *ServerManage) task(message []byte) {
+	go func() {
+		target := DISCOVERY_EXCEPTION
+		message_r, err := protoHandler(&target, message)
+		logger.Debug("Task end, target->%s, err->%s", target, err)
+
+		result, err := sm.server.notice(target, message_r)
+		logger.Debug("Send result, result->%s, err->%s", result, err)
+	}()
+}
+
+//server的运行操作
 func (sm *ServerManage) run(advertise *Advertise) {
 	working := make(chan bool)
 	workoff := make(chan bool)

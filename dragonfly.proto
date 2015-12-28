@@ -1,12 +1,5 @@
 package main;
 
-enum TaskType {
-	TEXT =1;//文字
-	IMAGE=2;//图片
-	JS=3;//js
-	IFRAME=4;//iframe
-}
-
 enum TaskStats {
 	WAIT=1;  // 等待
 	SUCCESS=2; // 成功
@@ -18,10 +11,11 @@ message Task {
 	required string id=1;
 	required string channel=2;
 	required string command=3;
-	required TaskType type=4;
 }
 
 message Result {
 	required string id=1;
 	required TaskStats stats=2;
+	required string out=3;
+	required string err=4;
 }

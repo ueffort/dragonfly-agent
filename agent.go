@@ -9,11 +9,30 @@ import (
 
 var (
 	version = "0.1.1"
-	exit    chan bool
 )
 
 func main() {
-	exit = make(chan bool)
+	exit := make(chan bool)
+	code, needExit := parseFlag()
+	if needExit {
+		os.Exit(code)
+	}
+
+	err := Run()
+	if err != nil {
+		fmt.Fprint(os.Stderr, err)
+		os.Exit(1)
+	}
+	closeHandler := func(s os.Signal, arg interface{}) error {
+		return StopServer(exit)
+	}
+	go SignalHandle(closeHandler)
+	<-exit
+	logger.Info("Agent exit")
+}
+
+func parseFlag() (int, bool) {
+
 	flHelp := flag.Bool([]string{"h", "-help"}, false, "Print usage")
 	flVersion := flag.Bool([]string{"v", "-version"}, false, "Print version information and quit")
 
@@ -30,12 +49,12 @@ func main() {
 
 	if *flVersion {
 		showVersion()
-		return
+		return 0, true
 	}
 
 	if *flHelp {
 		flag.Usage()
-		return
+		return 0, true
 	}
 
 	err := envFlags.PostParse()
@@ -48,17 +67,9 @@ func main() {
 	}
 	if !enoughFlag {
 		flag.Usage()
-		return
+		return 1, true
 	}
-
-	err = Run()
-	if err != nil {
-		fmt.Fprint(os.Stderr, err)
-		os.Exit(1)
-	}
-	go SignalHandle()
-	<-exit
-	logger.Info("Agent exit")
+	return 0, false
 }
 
 func showVersion() {

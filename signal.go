@@ -35,11 +35,8 @@ func (set *signalSet) handle(sig os.Signal, arg interface{}) (err error) {
 	panic("won't reach here")
 }
 
-func SignalHandle() {
+func SignalHandle(closeHandler signalHandler) {
 	ss := signalSetNew()
-	closeHandler := func(s os.Signal, arg interface{}) error {
-		return StopServer()
-	}
 
 	ss.register(syscall.SIGINT, closeHandler)
 	ss.register(syscall.SIGHUP, closeHandler)
