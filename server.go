@@ -18,6 +18,8 @@ type DiscoveryServer interface {
 
 type ServerManage struct {
 	server DiscoveryServer
+	quit   chan bool
+	clear  chan bool
 }
 
 type Discovery struct {
@@ -45,49 +47,42 @@ const DISCOVERY_KEEPALIVE_INTERVAL = 60
 //断开等待时间
 const DISCOVERY_BREAK_WAITTIME = 60
 
-var (
-	sm    *ServerManage
-	quit  chan bool
-	clear chan bool
-)
-
-func init() {
-	sm = new(ServerManage)
-	quit = make(chan bool)
-	clear = make(chan bool)
-}
-
 // 开启服务
-func StartServer(discovery *Discovery, advertise *Advertise) error {
+func StartServer(discovery *Discovery, advertise *Advertise) (*ServerManage, error) {
 	logger.Info("Start Server...")
 	logger.Debugf("Discovery info:%s", discovery)
 	logger.Debugf("Advertise info :%s", advertise)
 	server, err := discovery.init()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	sm := new(ServerManage)
 	sm.server = server
-	go sm.run(advertise)
-	return nil
+	sm.quit = make(chan bool)
+	sm.clear = make(chan bool)
+	sm.run(advertise)
+	return sm, nil
 }
 
 //结束服务
-func StopServer(exit chan<- bool) error {
+func StopServer(sm *ServerManage, exit chan<- bool) error {
 	if sm == nil {
 		return fmt.Errorf("Server is not init")
 	}
 	logger.Info("Stop Server...")
-	quit <- true
-	<-clear
-	logger.Info("Clear over, can exit")
+	sm.stop()
 	exit <- true
 	return nil
 }
 
 //实现server的keepalive
 func (sm *ServerManage) keep(second int, advertise *Advertise, working <-chan bool, workoff <-chan bool, unkeep <-chan bool) {
+	has_keep := false
 	register := func() {
 		replay, err := sm.server.notice(DISCOVERY_REGISTER, advertise.origin)
+		if err == nil {
+			has_keep = true
+		}
 		logger.Infof(
 			"Register advertise %s, replay->%s, err->%s, wait %s second",
 			advertise.origin,
@@ -97,6 +92,7 @@ func (sm *ServerManage) keep(second int, advertise *Advertise, working <-chan bo
 	}
 	unregister := func() {
 		replay, err := sm.server.notice(DISCOVERY_UNREGISTER, advertise.origin)
+		has_keep = false
 		logger.Infof(
 			"UnRegister advertise %s, replay->%s, err->%s, wait work",
 			advertise.origin,
@@ -106,15 +102,18 @@ func (sm *ServerManage) keep(second int, advertise *Advertise, working <-chan bo
 	}
 	for {
 		select {
+		case <-unkeep:
+			unregister()
+			logger.Info("Keep stop, ServerManage send")
+			return
 		case <-working:
 			register()
 		case <-workoff:
 			unregister()
-		case <-unkeep:
-			unregister()
-			return
 		case <-time.After(time.Second * time.Duration(second)):
-			register()
+			if has_keep {
+				register()
+			}
 		}
 	}
 }
@@ -123,13 +122,18 @@ func (sm *ServerManage) work(second int, advertise *Advertise, working chan<- bo
 	except := make(chan bool)
 	var cancel cancelWatch
 	var err error
+	has_work := false
 	on := func() {
 		cancel, err = sm.server.watch(advertise.origin, sm.task, working, except)
+		if err == nil {
+			has_work = true
+		}
 		logger.Infof("Watch advertise %s, err->%s", advertise.origin, err)
 	}
 	off := func() {
-		if cancel != nil {
+		if has_work {
 			cancel()
+			has_work = false
 		}
 		logger.Infof("Cancel Watch advertise %s", advertise.origin)
 	}
@@ -138,15 +142,15 @@ func (sm *ServerManage) work(second int, advertise *Advertise, working chan<- bo
 		select {
 		case <-unwork:
 			off()
+			logger.Info("Watch stop, ServerManage send")
 			return
 		case <-except:
+			has_work = false
 			cancel = nil
 			logger.Infof("Watch is break, wait %s second reconnect", second)
 			workoff <- true
-			select {
-			case <-unwork:
-				off()
-			case <-time.After(time.Second * time.Duration(second)):
+		case <-time.After(time.Second * time.Duration(second)):
+			if !has_work {
 				on()
 			}
 		}
@@ -185,19 +189,28 @@ func (sm *ServerManage) run(advertise *Advertise) {
 		logger.Infoln("KeepAlive stoped")
 		end <- true
 	}
+	wait := func() {
+		logger.Info("ServerManage wait quit")
+		<-sm.quit
+		logger.Debug("Accept quit, notice stop server")
+		unwork <- true
+		unkeep <- true
+		<-stopwork
+		<-stopkeep
+		sm.clear <- true
+		return
+	}
 	go work(working, workoff, unwork, stopwork)
 	go keep(working, workoff, unkeep, stopkeep)
-	for {
-		select {
-		case <-quit:
-			unwork <- true
-			unkeep <- true
-			<-stopwork
-			<-stopkeep
-			clear <- true
-			return
-		}
-	}
+	go wait()
+}
+
+//server的停止操作
+func (sm *ServerManage) stop() {
+	logger.Debug("ServerManage need stop, send quit")
+	sm.quit <- true
+	<-sm.clear
+	logger.Info("Clear over, ServerManage stoped")
 }
 
 //根据discovery参数生成server

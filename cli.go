@@ -58,6 +58,7 @@ func init() {
 }
 
 func Run() error {
+	exit := make(chan bool)
 	discovery, err := parseDiscovery(&commonFlags.Discovery)
 	if err != nil {
 		return err
@@ -66,10 +67,15 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	err = StartServer(discovery, advertise)
+	sm, err := StartServer(discovery, advertise)
 	if err != nil {
 		return err
 	}
+	closeHandler := func(s os.Signal, arg interface{}) error {
+		return StopServer(sm, exit)
+	}
+	go SignalHandle(closeHandler)
+	<-exit
 	return nil
 }
 

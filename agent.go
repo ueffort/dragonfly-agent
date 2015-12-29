@@ -12,7 +12,6 @@ var (
 )
 
 func main() {
-	exit := make(chan bool)
 	code, needExit := parseFlag()
 	if needExit {
 		os.Exit(code)
@@ -23,12 +22,6 @@ func main() {
 		fmt.Fprint(os.Stderr, err)
 		os.Exit(1)
 	}
-	closeHandler := func(s os.Signal, arg interface{}) error {
-		return StopServer(exit)
-	}
-	go SignalHandle(closeHandler)
-	<-exit
-	logger.Info("Agent exit")
 }
 
 func parseFlag() (int, bool) {

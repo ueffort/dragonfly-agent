@@ -58,10 +58,10 @@ func (redis *Redis) init(discovery *Discovery) error {
 
 func (redis *Redis) notice(target string, message interface{}) (interface{}, error) {
 	conn, err := redis.connect()
-	defer conn.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer conn.Close()
 	return conn.Do("PUBLISH", redis.prefix+redis.master+"/"+target, message)
 }
 
