@@ -7,29 +7,26 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
-func protoHandler(target *string, message []byte) ([]byte, error) {
+func protoHandler(message []byte) (string, []byte, error) {
 	newTask := new(Task)
 	newResult := new(Result)
 	err := proto.Unmarshal(message, newTask)
 	if err != nil {
-		newResult.Stats = TaskStats_EXCEPTION.Enum()
-		return nil, err
+		newResult.State = TaskState_EXCEPTION.Enum()
+		return "", nil, err
 	}
 	newResult.Id = newTask.Id
 	logger.Debugf("Task message :%s", newTask)
 	err = newTask.run(newResult)
 	if err != nil {
 		logger.Error(err)
-		newResult.Stats = TaskStats_FAILUER.Enum()
+		newResult.State = TaskState_FAIL.Enum()
 	} else {
-		newResult.Stats = TaskStats_SUCCESS.Enum()
+		newResult.State = TaskState_SUCCESS.Enum()
 	}
 	message, err = proto.Marshal(newResult)
 	logger.Debugf("Result message :%s", newResult)
-	if err == nil {
-		target = newTask.Channel
-	}
-	return message, err
+	return *newTask.Channel, message, err
 }
 
 func (task *Task) run(result *Result) error {

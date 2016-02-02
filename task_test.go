@@ -16,11 +16,14 @@ func TestTask(t *testing.T) {
 	command := "pwd"
 	newTask.Command = &command
 	message, err := proto.Marshal(newTask)
-	message_r, err := protoHandler(&target, message)
+	target, message_r, err := protoHandler(message)
 	if err != nil {
 		t.Error(err)
 		return
+	} else if target != channel {
+		t.Error(target)
 	} else {
+		t.Log(target)
 		t.Log(message_r)
 	}
 }

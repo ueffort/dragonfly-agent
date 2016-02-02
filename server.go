@@ -160,12 +160,14 @@ func (sm *ServerManage) work(second int, advertise *Advertise, working chan<- bo
 //处理task
 func (sm *ServerManage) task(message []byte) {
 	go func() {
-		target := DISCOVERY_EXCEPTION
-		message_r, err := protoHandler(&target, message)
-		logger.Debug("Task end, target->%s, err->%s", target, err)
-
-		result, err := sm.server.notice(target, message_r)
-		logger.Debug("Send result, result->%s, err->%s", result, err)
+		//		logger.Debug(message)
+		target, message_r, err := protoHandler(message)
+		logger.Debugf("Task end, target->%s, err->%s", target, err)
+		//		logger.Debug(message_r)
+		if target != "" {
+			result, err := sm.server.notice(target, message_r)
+			logger.Debugf("Send result, result->%s, err->%s", result, err)
+		}
 	}()
 }
 
