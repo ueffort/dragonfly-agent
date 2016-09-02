@@ -1,0 +1,4 @@
+{
+	"discovery": "redis://root@127.0.0.1:6379/dragonfly/master",
+	"advertise": "127.0.0.1"
+}

@@ -1,0 +1,21 @@
+package main;
+
+enum TaskState {
+	WAIT=1;  // 等待
+	SUCCESS=2; // 成功
+	FAIL=3; // 失败: task本身执行问题
+	EXCEPTION=4; // 异常: agent错误导致
+}
+
+message Task {
+	required string id=1;
+	required string channel=2;
+	required string command=3;
+}
+
+message Result {
+	required string id=1;
+	required TaskState state=2;
+	required string out=3;
+	required string err=4;
+}
